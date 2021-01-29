@@ -1,0 +1,93 @@
+# SDevices->SSensors Class, додати метод valueUpdatedMQTT і властивість valueMQTT (при зміні викликати valueUpdatedMQTT)
+$valueMQTT = $this->getProperty("valueMQTT"); // Значання яке приходить по MQTT (!!!Мова властивість)
+$minValue = $this->getProperty("minValue"); // Нижній поріг (властивість системи)
+$maxValue = $this->getProperty("maxValue"); // Верхній поріг (властивість системи)
+$normalValue = $this->getProperty("normalValue"); // Значення в нормальних межах (властивість системи)
+$deltaValue = $this->getProperty("deltaValue"); //На скільки одиниць повинна змінюватися величина (фільтр шумів), перед записом в value, якщо не задано - враховуватися не буде (!!!Мова властивість)
+
+if (is_numeric($minValue) || is_numeric($maxValue)) {
+	if ($valueMQTT <= $minValue || $valueMQTT >= $maxValue)
+	{
+		$this->setProperty("value", $valueMQTT);
+		return;
+	}
+	
+	if (!$normalValue && $valueMQTT >= $minValue && $valueMQTT <= $maxValue) 
+	{
+		$this->setProperty("value", $valueMQTT);
+		return;
+	}
+}
+
+$flagLoadValueMQTT = (int)$this->getProperty("flagLoadValueMQTT"); // (int) дасть 0, якщо flagLoadValueMQTT пуста строка (!!!Мова властивість)
+$loadValueTimeoutMQTT = $this->getProperty("loadValueTimeoutMQTT"); //В секундах (!!!Мова властивість)
+
+if (!$flagLoadValueMQTT && is_numeric($loadValueTimeoutMQTT)) {
+	$this->setProperty("flagLoadValueMQTT", 1);
+	$timeOutCommand = 'setGlobal("' . $this->object_title . '.flagLoadValueMQTT", 0);';
+	setTimeOut($this->object_title . "_flagLoadValueMQTT", $timeOutCommand, $loadValueTimeoutMQTT);
+	
+	if (is_numeric($deltaValue)) {
+		if (abs($value - $valueMQTT) >= $deltaValue) {
+			$this->setProperty("value", $valueMQTT);
+		}
+	} else {
+		$this->setProperty("value", $valueMQTT);
+	}
+	return;
+}
+
+$value = $this->getProperty("value");
+
+if ($valueMQTT != $value && !$flagLoadValueMQTT && $loadValueTimeoutMQTT == false) {
+	if (is_numeric($deltaValue)) {
+		if (abs($value - $valueMQTT) >= $deltaValue) {
+			$this->setProperty("value", $valueMQTT);
+		}
+	} else {
+		$this->setProperty("value", $valueMQTT);
+	}
+}
+
+//***************************************************************************************************************************
+
+# SDevices->SMotions Class, додати метод valueUpdatedMQTT і властивість valueMQTT (при зміні викликати valueUpdatedMQTT)
+$valueMQTT = $this->getProperty("valueMQTT");
+if (is_numeric($valueMQTT)) { // 1 OR 0
+	if ($valueMQTT) { // 1
+		$this->callMethod('motionDetected');
+	} else { // 0
+		$this->callMethod('keepAlive');
+	}
+}
+
+//***************************************************************************************************************************
+
+# SDevices->SEnergy Class, додати метод valueUpdatedMQTT і властивість valueMQTT (при зміні викликати valueUpdatedMQTT)
+$valueMQTT = $this->getProperty("valueMQTT");
+
+if (is_numeric($valueMQTT)) {
+	$flagLoadValueMQTT = (int)$this->getProperty("flagLoadValueMQTT"); // (int) дасть 0, якщо flagLoadValueMQTT пуста строка
+	$minute = date('i', time());
+	
+	if ($minute >= "00" && $minute <= "01" && !$flagLoadValueMQTT) {  // Записувати на початку кожної години
+		$this->setProperty("flagLoadValueMQTT", 1);
+		$timeOutCommand = 'setGlobal("' . $this->object_title . '.flagLoadValueMQTT", 0);';
+		setTimeOut($this->object_title . "_flagLoadValueMQTT", $timeOutCommand, 120);
+		
+		$this->setProperty("value", $valueMQTT);
+	}
+}
+
+//***************************************************************************************************************************
+
+#SDevices->SSmoke, додати метод valueUpdatedMQTT і властивість valueMQTT (при зміні викликати valueUpdatedMQTT)
+$valueMQTT = $this->getProperty("valueMQTT");
+if (is_numeric($valueMQTT)) { // 1 OR 0
+	if ($valueMQTT) { // 1
+		$this->setProperty("status", 1);
+	} else { // 0
+		!$this->getProperty("status") ?: $this->setProperty("status", 0);
+		$this->callMethod('keepAlive');
+	}
+}
