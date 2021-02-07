@@ -5,6 +5,7 @@
   
   Yurii Radio 2017-2021
   v3.2 (Fix errors)
+  v3.3 (Optimized performance)
   yurii.radio@gmail.com
 
 */
@@ -12,6 +13,7 @@
 
 #define ON 1    // Constant for the on state
 #define OFF 0   // Constant for the off state
+
 #define LCD_PRESENT 1 // The presence of an LCD display
 #define DHT_PRESENT 1 // Availability of DHT temperature / humidity sensors
 #define ENERGYMON_PRESENT 1 // The presence of current and voltage sensors
@@ -52,7 +54,7 @@ PubSubClient mqttClient(ethClient);   // Ініціалізуємо MQTT клі�
 unsigned long last_mqtt_reconnect_time = 0; // Обовязково unsigned long, щоб при переповненні millis(), різниця millis() - last_mqtt_reconnect_time була позитивна
 unsigned int mqtt_delay = 60000; // Затримка в мілісекундах перед повторною спробою підключитися до MQTT брокера
 const char mqtt_username[] = "mqttusr";
-const char mqtt_password[] = "mqttusr";
+const char mqtt_password[] = "mqttpass";
 String mqtt_client_name  = "MQTT-Client-01";
 String mqtt_client_subscribe = mqtt_client_name + "/relays/#";
 String mqtt_client_relay_topic = mqtt_client_name + "/relays/";
@@ -189,6 +191,24 @@ void pirProcess(void) {
 }
 #endif*/
 
+#if FR_PRESENT, LM_PRESENT
+/* 
+Function for filtering analog noise. 
+*/
+int analogReadMean(int pin, int samples){
+  // var for storing the sum of read values 
+  int sum = 0;
+  // reading and adding values 
+  for (int i = 0; i < samples; i++){
+    sum = sum + analogRead(pin);
+  }
+  // divide the sum of values by the number of measurements 
+  sum = sum/samples;
+  // return the average 
+  return sum;
+}
+#endif
+
 #if PIR_PRESENT
 void pirProcess(void) {
   if (!pir_init_delay_trigger) { //Затримка для ініціалізації датчиків
@@ -235,11 +255,16 @@ void pirProcess(void) {
 void frProcess(void) {
   for (i = 0; i < sizeof(fr_input_pins); i++) {
     if ((millis() - last_frs_time[i]) >= fr_delay) {
-        byte value = map(analogRead(fr_input_pins[i]), 25, 1020, 0, 100); //(fr_input_pins[i]), 0, 1023, 1, 100);
-        if (mqttClient.connected()) {
-          publish_str = String(value);
-          mqttClient.publish((mqtt_client_fr_topic + String(i)).c_str(), publish_str.c_str()); // Аргументи char*;
-        }
+		static byte last_value[sizeof(fr_input_pins)];
+        //byte value = map(analogRead(fr_input_pins[i]), 25, 1020, 0, 100); //(fr_input_pins[i]), 0, 1023, 1, 100);
+		byte value = map(analogReadMean(fr_input_pins[i], 5), 25, 1020, 0, 100); //(fr_input_pins[i]), 0, 1023, 1, 100);
+        if (abs(value - last_value[i]) >= 2) { // Noise filter, if not changed on delta - do not send, delta_value = 2
+		  last_value[i] = value;
+		  if (mqttClient.connected()) {
+            publish_str = String(value);
+            mqttClient.publish((mqtt_client_fr_topic + String(i)).c_str(), publish_str.c_str());
+          }
+		}
 #if DEBUG
         Serial.print("FR #"); Serial.print(i); Serial.print(" Value: "); Serial.println(value);
 #endif
@@ -253,11 +278,16 @@ void frProcess(void) {
 void lmProcess(void) {
   for (i = 0; i < sizeof(lm_input_pins); i++) {
     if ((millis() - last_lms_time[i]) >= lm_delay) {
-        float temp = (analogRead(lm_input_pins[i])/1023.0)*5.0*1000/10; //LM35
-        if (mqttClient.connected()) {
-          publish_str = String(temp, 2);
-          mqttClient.publish((mqtt_client_lm_topic + String(i)).c_str(), publish_str.c_str()); // Аргументи char*;
-        }
+		static float last_temp[sizeof(lm_input_pins)];
+        //float temp = (analogRead(lm_input_pins[i])/1023.0)*5.0*1000/10; //LM35
+		float temp = (analogReadMean(lm_input_pins[i], 5)/1023.0)*5.0*1000/10; //LM35
+		if (fabs(temp - last_temp[i]) >= 0.1) { // Noise filter, if not changed on delta - do not send, delta_temp = 0.1
+		  last_temp[i] = temp;
+		  if (mqttClient.connected()) {
+            publish_str = String(temp, 2);
+            mqttClient.publish((mqtt_client_lm_topic + String(i)).c_str(), publish_str.c_str());
+          }
+		}
 #if DEBUG
         Serial.print("LM #"); Serial.print(i); Serial.print(" Temp: "); Serial.println(temp);
 #endif
@@ -334,13 +364,17 @@ void energymonProcess(void) {
     float frequency = pzem.frequency();
     float pf = pzem.pf();
 
-    if (!isnan(voltage)) {
-      publish_str= String(voltage, 1);
-      if (mqttClient.connected()) {
-        mqttClient.publish(mqtt_client_energymon_L1_voltage_topic.c_str(), publish_str.c_str()); // Аргументи char*
+    if (!isnan(voltage)) { // Voltage (V)
+      static float last_voltage = 0.0;
+      if (fabs(voltage - last_voltage) >= 0.1) { // Noise filter, if not changed on delta - do not send, delta_voltage = 0.1
+        last_voltage = voltage;
+        publish_str = String(voltage, 1);
+        if (mqttClient.connected()) {
+          mqttClient.publish(mqtt_client_energymon_L1_voltage_topic.c_str(), publish_str.c_str());
+        }
       }
 #if DEBUG
-      Serial.print("Voltage: "); Serial.print(publish_str); Serial.println("V");
+      Serial.print("Voltage: "); Serial.print(voltage); Serial.println("V");
 #endif
     } else {
       if (mqttClient.connected()) {
@@ -351,13 +385,17 @@ void energymonProcess(void) {
 #endif
     }
 
-    if (!isnan(current)) {
-      publish_str = String(current);
-      if (mqttClient.connected()) {
-        mqttClient.publish(mqtt_client_energymon_L1_current_topic.c_str(), publish_str.c_str()); // Аргументи char*
-      }
+    if (!isnan(current)) { // Current (A)
+	  static float last_current = 0.0;
+	  if (fabs(current - last_current) >= 0.01) { // Noise filter, if not changed on delta - do not send, delta_current = 0.01
+		last_current = current;
+		publish_str = String(current);
+        if (mqttClient.connected()) {
+          mqttClient.publish(mqtt_client_energymon_L1_current_topic.c_str(), publish_str.c_str());
+        }  
+	  }
 #if DEBUG
-      Serial.print("Current: "); Serial.print(publish_str); Serial.println("A");
+      Serial.print("Current: "); Serial.print(current); Serial.println("A");
 #endif
     } else {
       if (mqttClient.connected()) {
@@ -368,11 +406,15 @@ void energymonProcess(void) {
 #endif
     }
 
-    if (!isnan(power)) {
-      publish_str = String(power);
-      if (mqttClient.connected()) {
-        mqttClient.publish(mqtt_client_energymon_L1_power_topic.c_str(), publish_str.c_str()); // Аргументи char*
-      }
+    if (!isnan(power)) { // Power (W)
+	  static float last_power = 0.0;
+	  if (fabs(power - last_power) >= 0.1) { // If not changed on delta - do not send, delta_power = 0.1
+		last_power = power; 
+		publish_str = String(power);
+        if (mqttClient.connected()) {
+          mqttClient.publish(mqtt_client_energymon_L1_power_topic.c_str(), publish_str.c_str());
+        }
+	  }
 #if DEBUG
       Serial.print("Power: "); Serial.print(publish_str); Serial.println("W");
 #endif
@@ -385,11 +427,15 @@ void energymonProcess(void) {
 #endif
     }
 
-    if (!isnan(energy)) {
-      publish_str = String(energy, 3);
-      if (mqttClient.connected()) {
-        mqttClient.publish(mqtt_client_energymon_L1_energy_topic.c_str(), publish_str.c_str()); // Аргументи char*
-      }
+    if (!isnan(energy)) { // Energy (kWh)
+	  static float last_energy = 0.0;
+	  if (fabs(energy - last_energy) >= 0.01) { // If not changed on delta - do not send, delta_energy = 0.01 (10W)
+		last_energy = energy;  
+		publish_str = String(energy, 3);
+        if (mqttClient.connected()) {
+          mqttClient.publish(mqtt_client_energymon_L1_energy_topic.c_str(), publish_str.c_str());
+        }  
+	  }
 #if DEBUG
       Serial.print("Energy: "); Serial.print(publish_str); Serial.println("kWh");
 #endif
@@ -402,11 +448,15 @@ void energymonProcess(void) {
 #endif
     }
 
-    if (!isnan(frequency)) {
-      publish_str = String(frequency, 1);
-      if (mqttClient.connected()) {
-        mqttClient.publish(mqtt_client_energymon_L1_frequency_topic.c_str(), publish_str.c_str()); // Аргументи char*
-      }
+    if (!isnan(frequency)) { // Frequency (Hz)
+	  static float last_frequency = 0.0;
+	  if (frequency != last_frequency) {
+		last_frequency = frequency;
+		publish_str = String(frequency, 1);
+        if (mqttClient.connected()) {
+          mqttClient.publish(mqtt_client_energymon_L1_frequency_topic.c_str(), publish_str.c_str());
+        }
+	  }
 #if DEBUG
       Serial.print("Frequency: "); Serial.print(publish_str); Serial.println("Hz");
 #endif
@@ -419,11 +469,15 @@ void energymonProcess(void) {
 #endif
     }
 
-    if (!isnan(pf)) {
-      publish_str= String(pf);
-      if (mqttClient.connected()) {
-        mqttClient.publish(mqtt_client_energymon_L1_pf_topic.c_str(), publish_str.c_str()); // Аргументи char*
-      }
+    if (!isnan(pf)) { // Power factor
+	  static float last_pf = 0.0;
+	  if (fabs(pf - last_pf) >= 0.01) { // Noise filter, if not changed on delta - do not send, delta_pf= 0.01
+	    last_pf = pf;
+        publish_str= String(pf);
+        if (mqttClient.connected()) {
+          mqttClient.publish(mqtt_client_energymon_L1_pf_topic.c_str(), publish_str.c_str()); // Аргументи char*
+        }
+	  }
 #if DEBUG
       Serial.print("PF: "); Serial.println(publish_str);
 #endif
@@ -441,7 +495,7 @@ void energymonProcess(void) {
 #endif
 
 void mqttReconnect(void) {
-  if ((millis() - last_mqtt_reconnect_time) >= mqtt_delay) {
+  if ((millis() - last_mqtt_reconnect_time) >= mqtt_delay) { // Wait mqtt_delay before retrying
 #if DEBUG
     Serial.print("Attempting MQTT connection...");
 #endif
@@ -486,7 +540,6 @@ void mqttReconnect(void) {
       //MQTT_CONNECT_UNAUTHORIZED    5
       Serial.println(", try again after " + String(mqtt_delay) + " milliseconds");
 #endif
-      // Wait mqtt_delay before retrying
       last_mqtt_reconnect_time = millis();
     }
   }
