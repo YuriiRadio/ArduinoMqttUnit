@@ -1,9 +1,8 @@
-# SDevices->SSensors Class, додати метод valueUpdatedMQTT і властивісті: valueMQTT (при зміні викликати метод valueUpdatedMQTT), flagLoadValueMQTT
+# SDevices->SSensors Class, додати метод valueUpdatedMQTT і властивості: valueMQTT (при зміні викликати метод valueUpdatedMQTT), flagLoadValueMQTT
 $valueMQTT = $this->getProperty("valueMQTT"); // Значання яке приходить по MQTT (!!!Мова властивість)
 $minValue = $this->getProperty("minValue"); // Нижній поріг (властивість системи)
 $maxValue = $this->getProperty("maxValue"); // Верхній поріг (властивість системи)
-$normalValue = $this->getProperty("normalValue"); // Значення в нормальних межах (властивість системи)
-$deltaValue = $this->getProperty("deltaValue"); //На скільки одиниць повинна змінюватися величина (фільтр шумів), перед записом в value, якщо не задано - враховуватися не буде (!!!Нова властивість)
+$normalValue = (int)$this->getProperty("normalValue"); // Значення в нормальних межах (властивість системи), (int) дасть 0, якщо normalValue пуста строка
 
 if (is_numeric($minValue) || is_numeric($maxValue)) {
 	if ($valueMQTT <= $minValue || $valueMQTT >= $maxValue)
@@ -19,8 +18,10 @@ if (is_numeric($minValue) || is_numeric($maxValue)) {
 	}
 }
 
+$value = $this->getProperty("value");
 $flagLoadValueMQTT = (int)$this->getProperty("flagLoadValueMQTT"); // (int) дасть 0, якщо flagLoadValueMQTT пуста строка (!!!Мова властивість)
 $loadValueTimeoutMQTT = $this->getProperty("loadValueTimeoutMQTT"); //В секундах (!!!Мова властивість)
+$deltaValue = $this->getProperty("deltaValue"); //На скільки одиниць повинна змінюватися величина (фільтр шумів), перед записом в value, якщо не задано - враховуватися не буде (!!!Нова властивість)
 
 if (!$flagLoadValueMQTT && is_numeric($loadValueTimeoutMQTT)) {
 	$this->setProperty("flagLoadValueMQTT", 1);
@@ -31,13 +32,11 @@ if (!$flagLoadValueMQTT && is_numeric($loadValueTimeoutMQTT)) {
 		if (abs($value - $valueMQTT) >= $deltaValue) {
 			$this->setProperty("value", $valueMQTT);
 		}
-	} else {
+	} elseif ($valueMQTT != $value) {
 		$this->setProperty("value", $valueMQTT);
 	}
 	return;
 }
-
-$value = $this->getProperty("value");
 
 if ($valueMQTT != $value && !$flagLoadValueMQTT && $loadValueTimeoutMQTT == false) {
 	if (is_numeric($deltaValue)) {

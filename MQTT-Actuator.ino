@@ -2,7 +2,7 @@
   Actuator for smart home, via MQTT over Ethernet protocols
   Виконувальний пристрій для розумного дому, через протоколі MQTT over Ethernet
   Platform: Arduino Mega 2560
-  
+
   Yurii Radio 2017-2021
   v3.2 (Fix errors)
   v3.3 (Optimized performance)
@@ -17,7 +17,7 @@
 #define LCD_PRESENT 1 // The presence of an LCD display
 #define DHT_PRESENT 1 // Availability of DHT temperature / humidity sensors
 #define ENERGYMON_PRESENT 1 // The presence of current and voltage sensors
-#define PIR_PRESENT 1 // Motion sensors - PIR (Passive Infra-Red) SR501 or a smoke sensor connected via TTL/CMOS converter
+#define PIR_PRESENT 1 // Motion sensors - PIR (Passive Infra-Red) HC-SR501(L - mode) or a smoke sensor connected via TTL/CMOS converter
 #define FR_PRESENT 1 // Light sensors, analog photoresistor 5мм GL5528, connected to Arduino analog inputs
 #define LM_PRESENT 1 // Temperature sensors, analog sensors, such as LM35, connected to Arduino analog inputs
 
@@ -78,7 +78,7 @@ String mqtt_client_dht2_temperature_topic = mqtt_client_name + "/DHT-temp/2";
 #endif
 
 #if PIR_PRESENT
-// Motion sensors PIR (Passive Infra-Red) SR501 L - режим, затримка мінімальна - 5 сек, підключені через TTL/CMOS converter (2,2K, 10K, 2N2222)
+// Motion sensors PIR (Passive Infra-Red) HC-SR501(L - режим), delay - 5 сек, підключені через TTL/CMOS converter (2,2K, 10K, 2N2222)
 unsigned int pir_init_delay = 30000; // Затримка в мілісекундах для ініціалізації датчиків
 byte pir_init_delay_trigger = 0;
 unsigned int pir_delay = 30000; // Час затримки на опитування датчика після спрацювання.
@@ -138,73 +138,72 @@ void lcdBacklight(byte backlight = OFF) {
 #if DHT_PRESENT
 void dhtProcess(void) {
   if ((millis() - last_dht_time) >= dht_delay) {
-    if (mqttClient.connected()) {
-      publish_str = String(dht1.readHumidity());
-      mqttClient.publish(mqtt_client_dht1_humidity_topic.c_str(), publish_str.c_str()); // Аргументи char*
-      publish_str = String(dht1.readTemperature());
-      mqttClient.publish(mqtt_client_dht1_temperature_topic.c_str(), publish_str.c_str()); // Аргументи char*
 
-      publish_str = String(dht2.readHumidity());
-      mqttClient.publish(mqtt_client_dht2_humidity_topic.c_str(), publish_str.c_str()); // Аргументи char*
-      publish_str = String(dht2.readTemperature());
-      mqttClient.publish(mqtt_client_dht2_temperature_topic.c_str(), publish_str.c_str()); // Аргументи char*
+    float dht_hum = dht1.readHumidity();
+    float dht_temp = dht1.readTemperature();
+
+    static float last_dht1_hum = 0.0;
+    if (fabs(dht_hum - last_dht1_hum) >= 0.1) { // If not changed on delta - do not send, delta_hmidity = 0.1
+	  last_dht1_hum = dht_hum;
+      if (mqttClient.connected()) {
+        publish_str = String(dht_hum, 1);
+        mqttClient.publish(mqtt_client_dht1_humidity_topic.c_str(), publish_str.c_str());
+      }
+    }
+    static float last_dht1_temp = 0.0;
+    if (fabs(dht_temp - last_dht1_temp) >= 0.1) { // If not changed on delta - do not send, delta_temperature = 0.1
+	  last_dht1_temp = dht_temp;
+      if (mqttClient.connected()) {
+        publish_str = String(dht_temp, 1);
+        mqttClient.publish(mqtt_client_dht1_temperature_topic.c_str(), publish_str.c_str());
+      }
     }
 #if DEBUG
-    Serial.println("Read DHT1 OK, Hum: " + String(dht1.readHumidity()) + " Temp: " + String(dht1.readTemperature()));
-    Serial.println("Read DHT2 OK, Hum: " + String(dht2.readHumidity()) + " Temp: " + String(dht2.readTemperature()));
+    Serial.println("Read DHT1 OK, Hum: " + String(dht_hum, 1) + " Temp: " + String(dht_temp, 1));
 #endif
+
+    dht_hum = dht2.readHumidity();
+    dht_temp = dht2.readTemperature();
+
+    static float last_dht2_hum = 0.0;
+    if (fabs(dht_hum - last_dht2_hum) >= 0.1) { // If not changed on delta - do not send, delta_hmidity = 0.1
+	  last_dht2_hum = dht_hum;
+      if (mqttClient.connected()) {
+        publish_str = String(dht_hum, 1);
+        mqttClient.publish(mqtt_client_dht2_humidity_topic.c_str(), publish_str.c_str());
+      }
+    }
+    static float last_dht2_temp = 0.0;
+    if (fabs(dht_temp - last_dht2_temp) >= 0.1) { // If not changed on delta - do not send, delta_temperature = 0.1
+	  last_dht2_temp = dht_temp;
+      if (mqttClient.connected()) {
+        publish_str = String(dht_temp, 1);
+        mqttClient.publish(mqtt_client_dht2_temperature_topic.c_str(), publish_str.c_str());
+      }
+    }
+#if DEBUG
+    Serial.println("Read DHT2 OK, Hum: " + String(dht_hum, 1) + " Temp: " + String(dht_temp, 1));
+#endif
+
     last_dht_time = millis();
   }
 }
 #endif
 
-/*#if PIR_PRESENT
-void pirProcess(void) {
-  if (!pir_init_delay_trigger) { //Затримка для ініціалізації датчиків
-    if ((millis() - pir_init_delay) >= 0) {
-      pir_init_delay_trigger = 1;
-    }
-  }
-  //Обробка датчиків, після витримки ініціалізації
-  if (pir_init_delay_trigger) {
-    for (i = 0; i < sizeof(pir_input_pins); i++) {
-      if ((millis() - last_pirs_time[i]) >= pir_delay) {
-        if (!digitalRead(pir_input_pins[i])) {
-          if (mqttClient.connected()) {
-            mqttClient.publish((mqtt_client_pir_topic + String(i)).c_str(), "1"); // Аргументи char*
-          }
-#if DEBUG
-          Serial.println("PIR #" + String(i) + " Value: 1");
-#endif
-        } else {
-          if (mqttClient.connected()) {
-            mqttClient.publish((mqtt_client_pir_topic + String(i)).c_str(), "0"); // Аргументи char*
-          }
-#if DEBUG
-          Serial.println("PIR #" + String(i) + " Value: 0");
-#endif
-        }//End if status
-        last_pirs_time[i] = millis();
-      }//End if pause
-    }//End for
-  }//End Обробка датчиків
-}
-#endif*/
-
 #if FR_PRESENT, LM_PRESENT
-/* 
-Function for filtering analog noise. 
+/*
+  Function for filtering analog noise.
 */
-int analogReadMean(int pin, int samples){
-  // var for storing the sum of read values 
+int analogReadMean(int pin, int samples) {
+  // var for storing the sum of read values
   int sum = 0;
-  // reading and adding values 
-  for (int i = 0; i < samples; i++){
+  // reading and adding values
+  for (int i = 0; i < samples; i++) {
     sum = sum + analogRead(pin);
   }
-  // divide the sum of values by the number of measurements 
-  sum = sum/samples;
-  // return the average 
+  // divide the sum of values by the number of measurements
+  sum = sum / samples;
+  // return the average
   return sum;
 }
 #endif
@@ -219,33 +218,33 @@ void pirProcess(void) {
   //Обробка датчиків, після витримки ініціалізації
   if (pir_init_delay_trigger) {
     for (i = 0; i < sizeof(pir_input_pins); i++) {
-    
-    if (!digitalRead(pir_input_pins[i]) && !pirs_states[i]) {
-      pirs_states[i] = 1; // Flag sensor triggered, default 0
-      last_pirs_time[i] = millis(); // Reset timer
-      if (mqttClient.connected()) {
-        mqttClient.publish((mqtt_client_pir_topic + String(i)).c_str(), "1"); // Аргументи char*
-      }
-#if DEBUG
-      //Serial.println("PIR #" + String(i) + " Value: 1");
-      Serial.print("PIR #");Serial.print(i);Serial.println(" Value: 1");
-#endif      
-    }
-    
-    if ((millis() - last_pirs_time[i]) >= pir_delay) { // last_pirs_time[i] default 0
-      if (digitalRead(pir_input_pins[i])) {
-        pirs_states[i] = 0; // Reset flag
+
+      if (!digitalRead(pir_input_pins[i]) && !pirs_states[i]) {
+        pirs_states[i] = 1; // Flag sensor triggered, default 0
+        last_pirs_time[i] = millis(); // Reset timer
         if (mqttClient.connected()) {
-          mqttClient.publish((mqtt_client_pir_topic + String(i)).c_str(), "0"); // Аргументи char*
+          mqttClient.publish((mqtt_client_pir_topic + String(i)).c_str(), "1"); // Аргументи char*
         }
 #if DEBUG
-        //Serial.println("PIR #" + String(i) + " Value: 0");
-        Serial.print("PIR #");Serial.print(i);Serial.println(" Value: 0");
+        //Serial.println("PIR #" + String(i) + " Value: 1");
+        Serial.print("PIR #"); Serial.print(i); Serial.println(" Value: 1");
 #endif
       }
-      last_pirs_time[i] = millis(); // Reset timer Для затримки відправки 0
-        }//End if pause
-    
+
+      if ((millis() - last_pirs_time[i]) >= pir_delay) { // last_pirs_time[i] default 0
+        if (digitalRead(pir_input_pins[i])) {
+          pirs_states[i] = 0; // Reset flag
+          if (mqttClient.connected()) {
+            mqttClient.publish((mqtt_client_pir_topic + String(i)).c_str(), "0"); // Аргументи char*
+          }
+#if DEBUG
+          //Serial.println("PIR #" + String(i) + " Value: 0");
+          Serial.print("PIR #"); Serial.print(i); Serial.println(" Value: 0");
+#endif
+        }
+        last_pirs_time[i] = millis(); // Reset timer Для затримки відправки 0
+      }//End if pause
+
     }//End for
   }//End Обробка датчиків
 }
@@ -255,18 +254,18 @@ void pirProcess(void) {
 void frProcess(void) {
   for (i = 0; i < sizeof(fr_input_pins); i++) {
     if ((millis() - last_frs_time[i]) >= fr_delay) {
-		static byte last_value[sizeof(fr_input_pins)];
-        //byte value = map(analogRead(fr_input_pins[i]), 25, 1020, 0, 100); //(fr_input_pins[i]), 0, 1023, 1, 100);
-		byte value = map(analogReadMean(fr_input_pins[i], 5), 25, 1020, 0, 100); //(fr_input_pins[i]), 0, 1023, 1, 100);
-        if (abs(value - last_value[i]) >= 2) { // Noise filter, if not changed on delta - do not send, delta_value = 2
-		  last_value[i] = value;
-		  if (mqttClient.connected()) {
-            publish_str = String(value);
-            mqttClient.publish((mqtt_client_fr_topic + String(i)).c_str(), publish_str.c_str());
-          }
-		}
+      static byte last_frs_value[sizeof(fr_input_pins)];
+      //byte value = map(analogRead(fr_input_pins[i]), 25, 1020, 0, 100); //(fr_input_pins[i]), 0, 1023, 1, 100);
+      byte value = map(analogReadMean(fr_input_pins[i], 5), 25, 1020, 0, 100); //(fr_input_pins[i]), 0, 1023, 1, 100);
+      if (abs(value - last_frs_value[i]) >= 2) { // Noise filter, if not changed on delta - do not send, delta_value = 2
+        last_frs_value[i] = value;
+        if (mqttClient.connected()) {
+          publish_str = String(value);
+          mqttClient.publish((mqtt_client_fr_topic + String(i)).c_str(), publish_str.c_str());
+        }
+      }
 #if DEBUG
-        Serial.print("FR #"); Serial.print(i); Serial.print(" Value: "); Serial.println(value);
+      Serial.print("FR #"); Serial.print(i); Serial.print(" Value: "); Serial.println(value);
 #endif
       last_frs_time[i] = millis();
     }//End if pause
@@ -278,18 +277,18 @@ void frProcess(void) {
 void lmProcess(void) {
   for (i = 0; i < sizeof(lm_input_pins); i++) {
     if ((millis() - last_lms_time[i]) >= lm_delay) {
-		static float last_temp[sizeof(lm_input_pins)];
-        //float temp = (analogRead(lm_input_pins[i])/1023.0)*5.0*1000/10; //LM35
-		float temp = (analogReadMean(lm_input_pins[i], 5)/1023.0)*5.0*1000/10; //LM35
-		if (fabs(temp - last_temp[i]) >= 0.1) { // Noise filter, if not changed on delta - do not send, delta_temp = 0.1
-		  last_temp[i] = temp;
-		  if (mqttClient.connected()) {
-            publish_str = String(temp, 2);
-            mqttClient.publish((mqtt_client_lm_topic + String(i)).c_str(), publish_str.c_str());
-          }
-		}
+      static float last_lms_temp[sizeof(lm_input_pins)];
+      //float temp = (analogRead(lm_input_pins[i])/1023.0)*5.0*1000/10; //LM35
+      float temp = (analogReadMean(lm_input_pins[i], 5) / 1023.0) * 5.0 * 1000 / 10; //LM35
+      if (fabs(temp - last_lms_temp[i]) >= 0.1) { // Noise filter, if not changed on delta - do not send, delta_temp = 0.1
+        last_lms_temp[i] = temp;
+        if (mqttClient.connected()) {
+          publish_str = String(temp, 2);
+          mqttClient.publish((mqtt_client_lm_topic + String(i)).c_str(), publish_str.c_str());
+        }
+      }
 #if DEBUG
-        Serial.print("LM #"); Serial.print(i); Serial.print(" Temp: "); Serial.println(temp);
+      Serial.print("LM #"); Serial.print(i); Serial.print(" Temp: "); Serial.println(temp);
 #endif
       last_lms_time[i] = millis();
     }//End if pause
@@ -300,29 +299,29 @@ void lmProcess(void) {
 /* Функція яка перевіряє статус кнопок NEW */
 void checkButtonsStates(void) {
   for (i = 0; i < sizeof(input_pins); i++) {
-    
-  if (digitalRead(input_pins[i]) != last_buttons_states[i]) { // last_buttons_states[i], default 1 for input_on_state 0 | default 0 for input_on_state 1
-    last_debounce_time[i] = millis(); // Reset timer
-    buttons_states[i] = 1; // Set flag (button is pressed); buttons_states[i] default 0
-  } 
 
-  if (buttons_states[i]) {
-    if ((millis() - last_debounce_time[i]) >= debounce_button_delay) { // Переповнення не буде, так як last_debounce_time[i] - unsigned long (невідємне ціле); millis() 50 days reset, micros() - for test 70 minutes reset
-      if (input_on_state ? digitalRead(input_pins[i]) : !digitalRead(input_pins[i])) {
-        // Кнопка input_pins[i] натиснута
-        // Це може бути клік, а може і помилковий сигнал (дребезг), виникає в момент замикання/розмикання контактів кнопки
-        // тому даємо кнопці повністю "заспокоїтися" ...
-        // Якщо затримка витримана та кнопка ще натиснута - міняємо стан вихідного контакту на протилежний
-        switchOutputPin(output_pins[i]);
-#if DEBUG
-        Serial.println("Button id: " + String(i) + " - last debounce time: " + String(last_debounce_time[i]) + "; status: " + String(output_pins_states[i]) + ";");
-#endif
-      } 
-    buttons_states[i] = 0; // Reset flag
+    if (digitalRead(input_pins[i]) != last_buttons_states[i]) { // last_buttons_states[i], default 1 for input_on_state 0 | default 0 for input_on_state 1
+      last_debounce_time[i] = millis(); // Reset timer
+      buttons_states[i] = 1; // Set flag (button is pressed); buttons_states[i] default 0
     }
-  }
+
+    if (buttons_states[i]) {
+      if ((millis() - last_debounce_time[i]) >= debounce_button_delay) { // Переповнення не буде, так як last_debounce_time[i] - unsigned long (невідємне ціле); millis() 50 days reset, micros() - for test 70 minutes reset
+        if (input_on_state ? digitalRead(input_pins[i]) : !digitalRead(input_pins[i])) {
+          // Кнопка input_pins[i] натиснута
+          // Це може бути клік, а може і помилковий сигнал (дребезг), виникає в момент замикання/розмикання контактів кнопки
+          // тому даємо кнопці повністю "заспокоїтися" ...
+          // Якщо затримка витримана та кнопка ще натиснута - міняємо стан вихідного контакту на протилежний
+          switchOutputPin(output_pins[i]);
+#if DEBUG
+          Serial.println("Button id: " + String(i) + " - last debounce time: " + String(last_debounce_time[i]) + "; status: " + String(output_pins_states[i]) + ";");
+#endif
+        }
+        buttons_states[i] = 0; // Reset flag
+      }
+    }
     last_buttons_states[i] = digitalRead(input_pins[i]);
-  
+
   } // End For
 }
 
@@ -374,7 +373,7 @@ void energymonProcess(void) {
         }
       }
 #if DEBUG
-      Serial.print("Voltage: "); Serial.print(voltage); Serial.println("V");
+      Serial.print("Voltage: "); Serial.print(voltage, 1); Serial.println("V");
 #endif
     } else {
       if (mqttClient.connected()) {
@@ -386,14 +385,14 @@ void energymonProcess(void) {
     }
 
     if (!isnan(current)) { // Current (A)
-	  static float last_current = 0.0;
-	  if (fabs(current - last_current) >= 0.01) { // Noise filter, if not changed on delta - do not send, delta_current = 0.01
-		last_current = current;
-		publish_str = String(current);
+      static float last_current = 0.0;
+      if (fabs(current - last_current) >= 0.01) { // Noise filter, if not changed on delta - do not send, delta_current = 0.01
+        last_current = current;
+        publish_str = String(current);
         if (mqttClient.connected()) {
           mqttClient.publish(mqtt_client_energymon_L1_current_topic.c_str(), publish_str.c_str());
-        }  
-	  }
+        }
+      }
 #if DEBUG
       Serial.print("Current: "); Serial.print(current); Serial.println("A");
 #endif
@@ -407,16 +406,16 @@ void energymonProcess(void) {
     }
 
     if (!isnan(power)) { // Power (W)
-	  static float last_power = 0.0;
-	  if (fabs(power - last_power) >= 0.1) { // If not changed on delta - do not send, delta_power = 0.1
-		last_power = power; 
-		publish_str = String(power);
+      static float last_power = 0.0;
+      if (fabs(power - last_power) >= 0.1) { // If not changed on delta - do not send, delta_power = 0.1
+        last_power = power;
+        publish_str = String(power);
         if (mqttClient.connected()) {
           mqttClient.publish(mqtt_client_energymon_L1_power_topic.c_str(), publish_str.c_str());
         }
-	  }
+      }
 #if DEBUG
-      Serial.print("Power: "); Serial.print(publish_str); Serial.println("W");
+      Serial.print("Power: "); Serial.print(power); Serial.println("W");
 #endif
     } else {
       if (mqttClient.connected()) {
@@ -428,16 +427,16 @@ void energymonProcess(void) {
     }
 
     if (!isnan(energy)) { // Energy (kWh)
-	  static float last_energy = 0.0;
-	  if (fabs(energy - last_energy) >= 0.01) { // If not changed on delta - do not send, delta_energy = 0.01 (10W)
-		last_energy = energy;  
-		publish_str = String(energy, 3);
+      static float last_energy = 0.0;
+      if (fabs(energy - last_energy) >= 0.01) { // If not changed on delta - do not send, delta_energy = 0.01 (10W)
+        last_energy = energy;
+        publish_str = String(energy, 3);
         if (mqttClient.connected()) {
           mqttClient.publish(mqtt_client_energymon_L1_energy_topic.c_str(), publish_str.c_str());
-        }  
-	  }
+        }
+      }
 #if DEBUG
-      Serial.print("Energy: "); Serial.print(publish_str); Serial.println("kWh");
+      Serial.print("Energy: "); Serial.print(energy, 3); Serial.println("kWh");
 #endif
     } else {
       if (mqttClient.connected()) {
@@ -449,16 +448,16 @@ void energymonProcess(void) {
     }
 
     if (!isnan(frequency)) { // Frequency (Hz)
-	  static float last_frequency = 0.0;
-	  if (frequency != last_frequency) {
-		last_frequency = frequency;
-		publish_str = String(frequency, 1);
+      static float last_frequency = 0.0;
+      if (frequency != last_frequency) {
+        last_frequency = frequency;
+        publish_str = String(frequency, 1);
         if (mqttClient.connected()) {
           mqttClient.publish(mqtt_client_energymon_L1_frequency_topic.c_str(), publish_str.c_str());
         }
-	  }
+      }
 #if DEBUG
-      Serial.print("Frequency: "); Serial.print(publish_str); Serial.println("Hz");
+      Serial.print("Frequency: "); Serial.print(frequency, 1); Serial.println("Hz");
 #endif
     } else {
       if (mqttClient.connected()) {
@@ -470,16 +469,16 @@ void energymonProcess(void) {
     }
 
     if (!isnan(pf)) { // Power factor
-	  static float last_pf = 0.0;
-	  if (fabs(pf - last_pf) >= 0.01) { // Noise filter, if not changed on delta - do not send, delta_pf= 0.01
-	    last_pf = pf;
-        publish_str= String(pf);
+      static float last_pf = 0.0;
+      if (fabs(pf - last_pf) >= 0.01) { // Noise filter, if not changed on delta - do not send, delta_pf= 0.01
+        last_pf = pf;
+        publish_str = String(pf);
         if (mqttClient.connected()) {
           mqttClient.publish(mqtt_client_energymon_L1_pf_topic.c_str(), publish_str.c_str()); // Аргументи char*
         }
-	  }
+      }
 #if DEBUG
-      Serial.print("PF: "); Serial.println(publish_str);
+      Serial.print("PF: "); Serial.println(pf);
 #endif
     } else {
       if (mqttClient.connected()) {
@@ -599,7 +598,7 @@ void setup() {
   for (i = 0; i < sizeof(input_pins); i++) {
     pinMode(input_pins[i], INPUT);
     last_debounce_time[i] = 0; // Ініціалізуємо масив unsigned long last_debounce_time, default 0
-  buttons_states[i] = 0; // Set flag (1 - button is pressed); buttons_states[i] default 0
+    buttons_states[i] = 0; // Set flag (1 - button is pressed); buttons_states[i] default 0
     input_on_state ? last_buttons_states[i] = 0 : last_buttons_states[i] = 1; // Ініціалізуємо масив last_buttons_states[i], default 1 for input_on_state 0 | default 0 for input_on_state 1
   }
 
@@ -640,7 +639,7 @@ void setup() {
   // Цикл для ініціалізації контактів pir_input_pins
   for (i = 0; i < sizeof(pir_input_pins); i++) {
     pinMode(pir_input_pins[i], INPUT);
-  pirs_states[i] = 0; // Flag sensor triggered, default 0
+    pirs_states[i] = 0; // Flag sensor triggered, default 0
     last_pirs_time[i] = 0; // Ініціалізуємо масив unsigned long last_pirs_time, по замовчуванню нулями
     if (mqttClient.connected()) {
       mqttClient.publish((mqtt_client_pir_topic + String(i)).c_str(), "0"); // Аргументи char*
@@ -652,16 +651,16 @@ void setup() {
   dht1.begin();
   dht2.begin();
 #endif
-  
+
 #if FR
   for (i = 0; i < sizeof(fr_input_pins); i++) {
-        last_frs_time[i] = 0; // Ініціалізуємо масив unsigned long last_pirs_time, по замовчуванню нулями
+    last_frs_time[i] = 0; // Ініціалізуємо масив unsigned long last_pirs_time, по замовчуванню нулями
   }//End for
 #endif
 
 #if LM
   for (i = 0; i < sizeof(lm_input_pins); i++) {
-        last_lms_time[i] = 0; // Ініціалізуємо масив unsigned long last_pirs_time, по замовчуванню нулями
+    last_lms_time[i] = 0; // Ініціалізуємо масив unsigned long last_pirs_time, по замовчуванню нулями
   }//End for
 #endif
 
