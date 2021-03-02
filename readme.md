@@ -7,6 +7,8 @@ you can also connect buttons and control the relay directly via the Arduino, and
 <br /><i>Виконувальний пристрій являє собою групу реле якими можна керувати по протоколу MQTT,
 також можна підключити кнопки та керувати реле напряму через Arduino, при цьому буде відправлятися статус на брокер ("1", "0").</i>
 
+Gallery <a href="https://github.com/YuriiRadio/ArduinoMqttUnit/wiki">Gallery</a>
+
 <b>You can also optionally connect:</b><br />
 <b>#define DEBUG 1</b> // Constant for debugging on the serial port<br />
 <b>#define LCD_PRESENT 1</b> // The presence of an LCD display<br />

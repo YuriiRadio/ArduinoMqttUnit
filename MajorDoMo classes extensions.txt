@@ -92,3 +92,41 @@ if (is_numeric($valueMQTT)) { // 1 OR 0
 	# loadValueTimeoutMQTT: 1200
 	# minValue: 49.5
 	# maxValue: 51
+
+//***************************************************************************************************************************	
+	
+//ThisComputer.powerDisconnected
+say("Увага! Відсутня напруга в електромережі.", 2);
+setTimeOut('shutDown', 'runScript("shutDown");', 60*60*4);
+say("Працюю від акумулятора, таймер вимкнення запущено.", 2);
+
+
+
+//ThisComputer.powerConnected
+say("Живлення відновленно!", 2);
+if (timeOutExists('shutDown')) {
+	ClearTimeOut('shutDown');
+	say("Працюю від електромережі, таймер вимкнення анульовано.", 2);
+}
+
+//Sensor_voltage01->valueUpdatedMQTT Викликати батьківський метод: після виконання коду
+/*
+$valueMQTT = $this->getProperty("valueMQTT");
+$value = $this->getProperty("value");
+if ($valueMQTT == "NAN" && is_numeric($value)) {
+	callMethod('ThisComputer.powerDisconnected');
+	return;
+}
+if (is_numeric($valueMQTT) && $value == "NAN") {
+	callMethod('ThisComputer.powerConnected');
+}
+*/
+
+if ($params['NEW_VALUE'] == "NAN" && is_numeric($params['OLD_VALUE'])) {
+	callMethod('ThisComputer.powerDisconnected');
+	return;
+}
+
+if (is_numeric($params['NEW_VALUE']) && $params['OLD_VALUE'] == "NAN") {
+	callMethod('ThisComputer.powerConnected');
+}
