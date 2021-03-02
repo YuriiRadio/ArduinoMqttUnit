@@ -59,6 +59,10 @@ String mqtt_client_name  = "MQTT-Client-01";
 String mqtt_client_subscribe = mqtt_client_name + "/relays/#";
 String mqtt_client_relay_topic = mqtt_client_name + "/relays/";
 
+unsigned long alive_minutes = 0;
+unsigned long last_alive_minutes_time = 0;
+String mqtt_client_alive_minutes = mqtt_client_name + "/alive-minutes";
+
 byte i; //Глобальна змінна для лічильників в функціях
 String publish_str; //Глобальна змінна для публікації в функціях
 
@@ -69,7 +73,7 @@ String publish_str; //Глобальна змінна для публікаці�
 const byte dht_input_pins[] = {26, 28}; // Цифрові контактів, до яких будуть підключені цифрові датчики DHT
 DHT dht1(dht_input_pins[0], DHTTYPE);
 DHT dht2(dht_input_pins[1], DHTTYPE);
-unsigned int dht_delay = 30000; // Час затримки на опитування датчика.
+unsigned int dht_delay = 30000; // Час затримки на опитування датчиків.
 unsigned long last_dht_time = 0; // Обовязково unsigned long, щоб при переповненні millis(), різниця millis() - last_dht_time була позитивна
 String mqtt_client_dht1_humidity_topic = mqtt_client_name + "/DHT-hum/1";
 String mqtt_client_dht1_temperature_topic = mqtt_client_name + "/DHT-temp/1";
@@ -92,6 +96,8 @@ String mqtt_client_pir_topic = mqtt_client_name + "/pirs/";
 #include <PZEM004Tv30.h> // PZEM004T v3.0
 PZEM004Tv30 pzem(&Serial1);  // Hardware Serial 1 (18-19); PZEM004Tv30 pzem(14, 15); //Rx, Tx connect to Tx, Rx of PZEM
 unsigned int energymon_delay = 10000; // Час затримки на опитування датчика.
+unsigned int energymon_init_delay = 12000; // Delay time for initialization PZEM004T, mS
+byte energymon_init_delay_trigger = 0; // Delay triger flag for initialization PZEM004T
 unsigned long last_energymon_time = 0; // Обовязково unsigned long, щоб при переповненні millis(), різниця millis() - last_energymon_time була позитивна
 String mqtt_client_energymon_L1_voltage_topic = mqtt_client_name + "/L1-voltage";
 String mqtt_client_energymon_L1_current_topic = mqtt_client_name + "/L1-current";
@@ -296,66 +302,16 @@ void lmProcess(void) {
 }
 #endif
 
-/* Функція яка перевіряє статус кнопок NEW */
-void checkButtonsStates(void) {
-  for (i = 0; i < sizeof(input_pins); i++) {
-
-    if (digitalRead(input_pins[i]) != last_buttons_states[i]) { // last_buttons_states[i], default 1 for input_on_state 0 | default 0 for input_on_state 1
-      last_debounce_time[i] = millis(); // Reset timer
-      buttons_states[i] = 1; // Set flag (button is pressed); buttons_states[i] default 0
-    }
-
-    if (buttons_states[i]) {
-      if ((millis() - last_debounce_time[i]) >= debounce_button_delay) { // Переповнення не буде, так як last_debounce_time[i] - unsigned long (невідємне ціле); millis() 50 days reset, micros() - for test 70 minutes reset
-        if (input_on_state ? digitalRead(input_pins[i]) : !digitalRead(input_pins[i])) {
-          // Кнопка input_pins[i] натиснута
-          // Це може бути клік, а може і помилковий сигнал (дребезг), виникає в момент замикання/розмикання контактів кнопки
-          // тому даємо кнопці повністю "заспокоїтися" ...
-          // Якщо затримка витримана та кнопка ще натиснута - міняємо стан вихідного контакту на протилежний
-          switchOutputPin(output_pins[i]);
-#if DEBUG
-          Serial.println("Button id: " + String(i) + " - last debounce time: " + String(last_debounce_time[i]) + "; status: " + String(output_pins_states[i]) + ";");
-#endif
-        }
-        buttons_states[i] = 0; // Reset flag
-      }
-    }
-    last_buttons_states[i] = digitalRead(input_pins[i]);
-
-  } // End For
-}
-
-/* Функція для зміни стану вихідного контакту - перемикання */
-void switchOutputPin(byte pin) {
-  for (i = 0; i < sizeof(output_pins); i++) { // Шукаємо індекс піна в масиві output_pins
-    if (output_pins[i] == pin) { // Якщо номер піна дорівнює переданому, виконуємо перемикання
-      if (output_pins_states[i] == ON) { // Якщо було ввімкнено - вимкнемо
-        output_pins_states[i] = OFF;
-        //digitalWrite(pin, OFF);
-        output_on_state ? digitalWrite(pin, 0) : digitalWrite(pin, 1);
-      } else { // Якщо було вимкнемо - ввімкнемо
-        output_pins_states[i] = ON;
-        //digitalWrite(pin, ON);
-        output_on_state ? digitalWrite(pin, 1) : digitalWrite(pin, 0);
-      }
-      break; // Якщо знайшли контакт - виходимо з циклу
-    }
-  }
-  if (mqttClient.connected()) {
-    mqttClient.publish((mqtt_client_relay_topic + String(i)).c_str(), output_pins_states[i] ? "1" : "0"); // Аргументи char*
-  }
-#if LCD_PRESENT
-  lcd.clear();      // очистка дисплею
-  lcdBacklight(ON); // Вмикаємо підсвітку на певний час
-  lcd.print("Button id: " + String(i)); // Выводим текст
-  lcd.setCursor(0, 1); // Встановлюємо курсор в початок 2 рядка
-  lcd.print("status: " + String(output_pins_states[i] ? "ON" : "OFF"));
-#endif
-}
-
 #if ENERGYMON_PRESENT
 void energymonProcess(void) {
-  if ((millis() - last_energymon_time) >= energymon_delay) {
+  if (!energymon_init_delay_trigger) { // Delay for initialization PZEM004T
+    if ((millis() - energymon_init_delay) >= 0) {
+      energymon_init_delay_trigger = 1;
+    }
+  }
+  // Processing PZEM004T after initialization 
+  if (energymon_init_delay_trigger) {
+	if ((millis() - last_energymon_time) >= energymon_delay) {
     float voltage = pzem.voltage();
     float current = pzem.current();
     float power = pzem.power();
@@ -489,9 +445,81 @@ void energymonProcess(void) {
 #endif
     }
     last_energymon_time = millis();
+    }
   }
 }
 #endif
+
+/* Функція яка перевіряє статус кнопок NEW */
+void checkButtonsStates(void) {
+  for (i = 0; i < sizeof(input_pins); i++) {
+
+    if (digitalRead(input_pins[i]) != last_buttons_states[i]) { // last_buttons_states[i], default 1 for input_on_state 0 | default 0 for input_on_state 1
+      last_debounce_time[i] = millis(); // Reset timer
+      buttons_states[i] = 1; // Set flag (button is pressed); buttons_states[i] default 0
+    }
+
+    if (buttons_states[i]) {
+      if ((millis() - last_debounce_time[i]) >= debounce_button_delay) { // Переповнення не буде, так як last_debounce_time[i] - unsigned long (невідємне ціле); millis() 50 days reset, micros() - for test 70 minutes reset
+        if (input_on_state ? digitalRead(input_pins[i]) : !digitalRead(input_pins[i])) {
+          // Кнопка input_pins[i] натиснута
+          // Це може бути клік, а може і помилковий сигнал (дребезг), виникає в момент замикання/розмикання контактів кнопки
+          // тому даємо кнопці повністю "заспокоїтися" ...
+          // Якщо затримка витримана та кнопка ще натиснута - міняємо стан вихідного контакту на протилежний
+          switchOutputPin(output_pins[i]);
+#if DEBUG
+          Serial.println("Button id: " + String(i) + " - last debounce time: " + String(last_debounce_time[i]) + "; status: " + String(output_pins_states[i]) + ";");
+#endif
+        }
+        buttons_states[i] = 0; // Reset flag
+      }
+    }
+    last_buttons_states[i] = digitalRead(input_pins[i]);
+
+  } // End For
+}
+
+/* Функція для зміни стану вихідного контакту - перемикання */
+void switchOutputPin(byte pin) {
+  for (i = 0; i < sizeof(output_pins); i++) { // Шукаємо індекс піна в масиві output_pins
+    if (output_pins[i] == pin) { // Якщо номер піна дорівнює переданому, виконуємо перемикання
+      if (output_pins_states[i] == ON) { // Якщо було ввімкнено - вимкнемо
+        output_pins_states[i] = OFF;
+        //digitalWrite(pin, OFF);
+        output_on_state ? digitalWrite(pin, 0) : digitalWrite(pin, 1);
+      } else { // Якщо було вимкнемо - ввімкнемо
+        output_pins_states[i] = ON;
+        //digitalWrite(pin, ON);
+        output_on_state ? digitalWrite(pin, 1) : digitalWrite(pin, 0);
+      }
+      break; // Якщо знайшли контакт - виходимо з циклу
+    }
+  }
+  if (mqttClient.connected()) {
+    mqttClient.publish((mqtt_client_relay_topic + String(i)).c_str(), output_pins_states[i] ? "1" : "0"); // Аргументи char*
+  }
+#if LCD_PRESENT
+  lcd.clear();      // очистка дисплею
+  lcdBacklight(ON); // Вмикаємо підсвітку на певний час
+  lcd.print("Button id: " + String(i)); // Выводим текст
+  lcd.setCursor(0, 1); // Встановлюємо курсор в початок 2 рядка
+  lcd.print("status: " + String(output_pins_states[i] ? "ON" : "OFF"));
+#endif
+}
+
+void aliveMinutes() { // Час роботи в хвилинах, для контролю на зависання
+  if ((millis() - last_alive_minutes_time) >= 60000) {
+    alive_minutes += 1;
+	if (mqttClient.connected()) {
+	  publish_str = String(alive_minutes);
+      mqttClient.publish(mqtt_client_alive_minutes.c_str(), publish_str.c_str());
+    }
+#if DEBUG
+      Serial.print("Alive: "); Serial.print(alive_minutes); Serial.println(" minutes");
+#endif
+	last_alive_minutes_time = millis();
+  }
+}
 
 void mqttReconnect(void) {
   if ((millis() - last_mqtt_reconnect_time) >= mqtt_delay) { // Wait mqtt_delay before retrying
@@ -699,4 +727,6 @@ void loop() {
 #if LM_PRESENT
   lmProcess();
 #endif
+
+  aliveMinutes();
 }
