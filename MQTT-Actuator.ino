@@ -499,9 +499,9 @@ void switchOutputPin(byte pin) {
     mqttClient.publish((mqtt_client_relay_topic + String(i)).c_str(), output_pins_states[i] ? "1" : "0"); // Аргументи char*
   }
 #if LCD_PRESENT
-  lcd.clear();      // очистка дисплею
+  lcd.clear();      // Очистка дисплею
   lcdBacklight(ON); // Вмикаємо підсвітку на певний час
-  lcd.print("Button id: " + String(i)); // Выводим текст
+  lcd.print("Button id: " + String(i) + "(" + String(input_pins[i]) + ")"); // Button id та номер контакту
   lcd.setCursor(0, 1); // Встановлюємо курсор в початок 2 рядка
   lcd.print("status: " + String(output_pins_states[i] ? "ON" : "OFF"));
 #endif
@@ -587,27 +587,28 @@ void callback(char* topic, byte* payload, unsigned int length) {
   String str_payload = String((char*)payload);
 
   if (str_topic.substring(0, 22) == mqtt_client_relay_topic) {
+	i = str_topic.substring(22).toInt();
     if (str_payload == "1") { // Якщо команда ввімкнути - вмикаємо
-      if (!output_pins_states[str_topic.substring(22).toInt()]) { // Вмикаємо тільки якщо дійсно було вимкнуто
-        output_pins_states[str_topic.substring(22).toInt()] = ON;
-        digitalWrite(output_pins[str_topic.substring(22).toInt()], output_on_state ? ON : OFF);
+      if (!output_pins_states[i]) { // Вмикаємо тільки якщо дійсно було вимкнуто
+        output_pins_states[i] = ON;
+        digitalWrite(output_pins[i], output_on_state ? ON : OFF);
 #if LCD_PRESENT
         lcd.clear();      // очистка дисплею
         lcdBacklight(ON); // Вмикаємо підсвітку на певний час
-        lcd.print("Relays id: " + String(str_topic.substring(22).toInt())); // Виводимо текст
+        lcd.print("Relays id: " + String(i)+ "(" + String(output_pins[i]) + ")"); // Relays id та номер контакту
         lcd.setCursor(0, 1); // Встановлюємо курсор в початок 2 рядка
         lcd.print("status: ON");
 #endif
       }
     }
     if (str_payload == "0") { // Якщо команда вимкнути - вимикаємо
-      if (output_pins_states[str_topic.substring(22).toInt()]) { // Вимикаємо тільки якщо дійсно було ввімкнено
-        output_pins_states[str_topic.substring(22).toInt()] = OFF;
-        digitalWrite(output_pins[str_topic.substring(22).toInt()], output_on_state ? OFF : ON);
+      if (output_pins_states[i]) { // Вимикаємо тільки якщо дійсно було ввімкнено
+        output_pins_states[i] = OFF;
+        digitalWrite(output_pins[i], output_on_state ? OFF : ON);
 #if LCD_PRESENT
         lcd.clear();      // очистка дисплею
         lcdBacklight(ON); // Вмикаємо підсвітку на певний час
-        lcd.print("Relays id: " + String(str_topic.substring(22).toInt())); // Виводимо текст
+        lcd.print("Relays id: " + String(i)+ "(" + String(output_pins[i]) + ")"); // Relays id та номер контакту
         lcd.setCursor(0, 1); // Встановлюємо курсор в початок 2 рядка
         lcd.print("status: OFF");
 #endif
