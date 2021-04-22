@@ -304,6 +304,7 @@ void lmProcess(void) {
 
 #if ENERGYMON_PRESENT
 void energymonProcess(void) {
+  static byte first_value = 1;
   if (!energymon_init_delay_trigger) { // Delay for initialization PZEM004T
     if ((millis() - energymon_init_delay) >= 0) {
       energymon_init_delay_trigger = 1;
@@ -321,7 +322,7 @@ void energymonProcess(void) {
 
     if (!isnan(voltage)) { // Voltage (V)
       static float last_voltage = 0.0;
-      if (fabs(voltage - last_voltage) >= 0.1) { // Noise filter, if not changed on delta - do not send, delta_voltage = 0.1
+      if ((fabs(voltage - last_voltage) >= 0.1) || first_value) { // Noise filter, if not changed on delta - do not send, delta_voltage = 0.1
         last_voltage = voltage;
         publish_str = String(voltage, 1);
         if (mqttClient.connected()) {
@@ -342,7 +343,7 @@ void energymonProcess(void) {
 
     if (!isnan(current)) { // Current (A)
       static float last_current = 0.0;
-      if (fabs(current - last_current) >= 0.01) { // Noise filter, if not changed on delta - do not send, delta_current = 0.01
+      if ((fabs(current - last_current) >= 0.01) || first_value) { // Noise filter, if not changed on delta - do not send, delta_current = 0.01
         last_current = current;
         publish_str = String(current);
         if (mqttClient.connected()) {
@@ -363,7 +364,7 @@ void energymonProcess(void) {
 
     if (!isnan(power)) { // Power (W)
       static float last_power = 0.0;
-      if (fabs(power - last_power) >= 0.1) { // If not changed on delta - do not send, delta_power = 0.1
+      if ((fabs(power - last_power) >= 0.1) || first_value) { // If not changed on delta - do not send, delta_power = 0.1
         last_power = power;
         publish_str = String(power);
         if (mqttClient.connected()) {
@@ -384,7 +385,7 @@ void energymonProcess(void) {
 
     if (!isnan(energy)) { // Energy (kWh)
       static float last_energy = 0.0;
-      if (fabs(energy - last_energy) >= 0.01) { // If not changed on delta - do not send, delta_energy = 0.01 (10W)
+      if ((fabs(energy - last_energy) >= 0.01) || first_value) { // If not changed on delta - do not send, delta_energy = 0.01 (10W)
         last_energy = energy;
         publish_str = String(energy, 3);
         if (mqttClient.connected()) {
@@ -426,7 +427,7 @@ void energymonProcess(void) {
 
     if (!isnan(pf)) { // Power factor
       static float last_pf = 0.0;
-      if (fabs(pf - last_pf) >= 0.01) { // Noise filter, if not changed on delta - do not send, delta_pf= 0.01
+      if ((fabs(pf - last_pf) >= 0.01) || first_value) { // Noise filter, if not changed on delta - do not send, delta_pf= 0.01
         last_pf = pf;
         publish_str = String(pf);
         if (mqttClient.connected()) {
@@ -445,6 +446,7 @@ void energymonProcess(void) {
 #endif
     }
     last_energymon_time = millis();
+	isnan(voltage) ? first_value = 1 : first_value = 0;
     }
   }
 }
